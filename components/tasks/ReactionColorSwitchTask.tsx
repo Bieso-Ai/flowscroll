@@ -16,7 +16,8 @@ interface TrialLog {
 }
 
 export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isActive }) => {
-  const [phase, setPhase] = useState<'intro' | 'playing' | 'summary'>('intro');
+  const [phase, setPhase] = useState<'intro' | 'countdown' | 'playing' | 'summary'>('intro');
+  const [countdown, setCountdown] = useState(3);
   
   // Task Config
   const { numTrials, distractorStepMin, distractorStepMax, colorChangeSpeed, targetWindow, distractors, targetColorClass, targetColorName } = task.content;
@@ -39,6 +40,8 @@ export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isA
   const distractorCountRef = useRef(0);
   const targetDistractorStepsRef = useRef(0);
   const hasInteractedInTrialRef = useRef(false);
+  // Safety lock for countdown/intro transitions
+  const inputLocked = useRef(false);
 
   useEffect(() => {
     isActiveRef.current = isActive;
@@ -48,8 +51,28 @@ export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isA
     }
   }, [isActive]);
 
+  const startCountdown = () => {
+      setPhase('countdown');
+      setCountdown(3);
+      inputLocked.current = true;
+
+      let count = 3;
+      const interval = setInterval(() => {
+          count--;
+          if (count > 0) {
+              setCountdown(count);
+              playSound('tap');
+          } else {
+              clearInterval(interval);
+              setCountdown(0);
+              startSession();
+          }
+      }, 800);
+  };
+
   const startSession = () => {
     setPhase('playing');
+    inputLocked.current = false;
     setCurrentTrialIndex(0);
     setLogs([]);
     startTrial();
@@ -114,11 +137,13 @@ export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isA
   };
 
   const handleInteraction = (e: React.MouseEvent | React.TouchEvent) => {
-      e.preventDefault();
-      if (phase !== 'playing') {
-          if (phase === 'summary') onComplete(true);
-          return;
-      }
+      // IMPORTANT: Stop propagation so the Feed doesn't swipe when tapping the button
+      e.stopPropagation();
+      // Prevent default to avoid double-firing on some touch devices
+      if (e.cancelable && e.type !== 'click') e.preventDefault(); 
+
+      if (phase !== 'playing' || inputLocked.current) return;
+      
       if (hasInteractedInTrialRef.current) return; // Ignore multi-taps per trial
       hasInteractedInTrialRef.current = true;
 
@@ -222,7 +247,7 @@ export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isA
                  </div>
 
                  <button 
-                    onClick={startSession}
+                    onClick={startCountdown}
                     className="px-10 py-4 bg-white text-black font-bold rounded-full text-xl shadow-[0_0_30px_rgba(255,255,255,0.3)] hover:scale-105 active:scale-95 transition-transform"
                  >
                     Start
@@ -232,14 +257,22 @@ export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isA
       );
   }
 
+  if (phase === 'countdown') {
+      return (
+          <div className="h-full w-full flex flex-col items-center justify-center bg-black">
+              <div className="text-9xl font-black text-white animate-ping">
+                  {countdown}
+              </div>
+          </div>
+      );
+  }
+
   if (phase === 'playing') {
       const progress = ((currentTrialIndex + 1) / numTrials) * 100;
       
       return (
         <div 
             className="h-full w-full flex flex-col items-center justify-center relative bg-black touch-none select-none"
-            onMouseDown={handleInteraction}
-            onTouchStart={handleInteraction}
         >
             {/* Progress Bar */}
             <div className="absolute top-0 left-0 h-1 bg-white/20 w-full">
@@ -251,18 +284,21 @@ export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isA
                 Ziel: {targetColorName}
             </div>
 
-            {/* THE BUTTON */}
+            {/* THE BUTTON (Interaction Target) */}
+            {/* Moved handlers HERE to prevent feed swipe conflicts */}
             <div className="relative">
                 <div 
+                    onMouseDown={handleInteraction}
+                    onTouchStart={handleInteraction}
                     className={`
-                        w-64 h-64 rounded-full shadow-2xl transition-colors duration-75
+                        w-64 h-64 rounded-full shadow-2xl transition-colors duration-75 cursor-pointer
                         ${currentColor}
                         ${trialPhase === 'target' ? 'scale-105 shadow-[0_0_50px_rgba(34,197,94,0.6)]' : ''}
-                        flex items-center justify-center
+                        flex items-center justify-center active:scale-95
                     `}
                 >
                     {feedbackMsg && (
-                        <span className={`text-4xl font-black ${feedbackColor} animate-bounce drop-shadow-md`}>
+                        <span className={`text-4xl font-black ${feedbackColor} animate-bounce drop-shadow-md pointer-events-none`}>
                             {feedbackMsg}
                         </span>
                     )}
@@ -270,7 +306,7 @@ export const ReactionColorSwitchTask: React.FC<Props> = ({ task, onComplete, isA
                 
                 {/* Ping animation for target */}
                 {trialPhase === 'target' && !feedbackMsg && (
-                    <div className={`absolute inset-0 rounded-full ${targetColorClass} animate-ping opacity-50`} />
+                    <div className={`absolute inset-0 rounded-full ${targetColorClass} animate-ping opacity-50 pointer-events-none`} />
                 )}
             </div>
             
