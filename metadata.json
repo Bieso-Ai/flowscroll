@@ -1,0 +1,7 @@
+{
+  "name": "FlowScroll",
+  "description": "An infinite, adaptive cognitive training feed designed to keep you in the flow state while improving logic, language, and reaction skills.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
